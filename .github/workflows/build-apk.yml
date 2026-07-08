@@ -13,7 +13,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17 (for Android SDK setup)
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
@@ -21,12 +21,6 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-
-      - name: Set up JDK 11 (for Gradle build)
-        uses: actions/setup-java@v4
-        with:
-          java-version: '11'
-          distribution: 'temurin'
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -65,10 +59,11 @@ jobs:
           }
           GSJSON
 
-      - name: Patch WebRTC dependency dan repository
+      - name: Patch build files
         run: |
           python3 << 'PYEOF'
-          # Patch 1: app/build.gradle - ganti WebRTC dependency
+
+          # Patch 1: app/build.gradle - ganti WebRTC (org.webrtc sudah tidak ada di repo manapun)
           with open("app/build.gradle", "r") as f:
               content = f.read()
           content = content.replace(
@@ -77,18 +72,57 @@ jobs:
           )
           with open("app/build.gradle", "w") as f:
               f.write(content)
-          print("app/build.gradle patched OK")
+          print("PATCH 1 OK: WebRTC dependency replaced")
 
-          # Patch 2: build.gradle - tambah maven repo WebRTC
+          # Patch 2: build.gradle - upgrade AGP 3.6.3 -> 7.4.2 + upgrade plugin dependencies
+          # AGP 7.4.2 Jetifier bisa handle bytecode Java 17 (tidak seperti AGP 3.6.3)
+          # AGP 7.4.2 masih support compileSdk 29 dan targetSdk 29
           with open("build.gradle", "r") as f:
               content = f.read()
+          content = content.replace(
+              "classpath 'com.android.tools.build:gradle:3.6.3'",
+              "classpath 'com.android.tools.build:gradle:7.4.2'"
+          )
+          content = content.replace(
+              "classpath 'com.google.gms:google-services:4.3.3'",
+              "classpath 'com.google.gms:google-services:4.3.15'"
+          )
+          content = content.replace(
+              "classpath 'com.google.firebase:firebase-crashlytics-gradle:2.1.1'",
+              "classpath 'com.google.firebase:firebase-crashlytics-gradle:2.9.9'"
+          )
           content = content.replace(
               "allprojects {\n    repositories {\n        google()\n        jcenter()\n        \n    }\n}",
               "allprojects {\n    repositories {\n        google()\n        jcenter()\n        maven { url 'https://raw.githubusercontent.com/webrtc-sdk/maven/main' }\n    }\n}"
           )
           with open("build.gradle", "w") as f:
               f.write(content)
-          print("build.gradle patched OK")
+          print("PATCH 2 OK: AGP upgraded to 7.4.2")
+
+          # Patch 3: gradle-wrapper.properties - upgrade Gradle 5.6.4 -> 7.5
+          # AGP 7.4.2 butuh minimal Gradle 7.5
+          with open("gradle/wrapper/gradle-wrapper.properties", "r") as f:
+              content = f.read()
+          content = content.replace(
+              "distributionUrl=https\\://services.gradle.org/distributions/gradle-5.6.4-all.zip",
+              "distributionUrl=https\\://services.gradle.org/distributions/gradle-7.5-bin.zip"
+          )
+          with open("gradle/wrapper/gradle-wrapper.properties", "w") as f:
+              f.write(content)
+          print("PATCH 3 OK: Gradle upgraded to 7.5")
+
+          # Patch 4: gradle.properties - matikan Jetifier
+          # Semua dependencies sudah AndroidX, Jetifier tidak diperlukan
+          with open("gradle.properties", "r") as f:
+              content = f.read()
+          content = content.replace(
+              "android.enableJetifier=true",
+              "android.enableJetifier=false"
+          )
+          with open("gradle.properties", "w") as f:
+              f.write(content)
+          print("PATCH 4 OK: Jetifier disabled")
+
           PYEOF
 
       - name: Build Debug APK
